@@ -1,0 +1,339 @@
+--- libxcb-1.13.orig/src/hack.h	1970-01-01 01:00:00.000000000 +0100
++++ libxcb-1.13.patched/src/hack.h	2019-03-10 18:05:03.449338658 +0100
+@@ -0,0 +1,59 @@
++#ifndef XCB_HACK_H
++#define XCB_HACK_H 1
++
++/* Modify below to suit your needs */
++
++/* Specify your screen/window resolution and width of your chat dialog
++   Make a screenshot and measure chat width (using rectangular selection in Gimp ie.)
++*/
++#define HACK_RES_X					1920	/* <--- MODIFY HERE */
++#define HACK_RES_Y					1200	/* <--- MODIFY HERE */
++#define HACK_CHAT_WIDTH				500		/* <--- MODIFY HERE */
++
++/* remap arrows to WSAD */
++#define HACK_REMAP_ARROW_KEYS		1
++
++/* remap 0-9 on top row of keyboard to num pad (ie. french keyboard) */
++#define HACK_REMAP_AZERTY_NUMBERS	1
++
++/* Allow to use space bar to cast a spell (by default: spell 0) */
++#define HACK_REMAP_SPACEBAR			1
++
++/* hack for the "not sticking" bug when selecting Objects */
++#define HACK_SELECT_WITH_MOUSE		1
++
++/* Remap buttons 9 and 8 of mouse to cast spells (8 and 9 respectively) */
++#define HACK_REMAP_MOUSE_BUTTONS	1
++
++/* Toggle keys hack when clicking on chat text input
++   (see HACK_RES_X, HACK_RES_Y, HACK_CHAT_WIDTH below) */
++#define HACK_CHAT_ZONE				1
++
++/* swap K and X, beware it applies to login screen too ;) */
++#define HACK_REMAP_KX				0
++
++
++
++/* Display various info (debug, key pressed, mouse position) */
++#define HACK_DEBUG					0
++
++/* codes for numpad keys (do not change) */
++#define NUM_PAD_1 87
++#define NUM_PAD_2 88
++#define NUM_PAD_3 89
++#define NUM_PAD_4 83
++#define NUM_PAD_5 84
++#define NUM_PAD_6 85
++#define NUM_PAD_7 79
++#define NUM_PAD_8 80
++#define NUM_PAD_9 81
++#define NUM_PAD_0 90
++
++
++/* Define what to map to which spell */
++#define HACK_REMAP_MOUSE_BUTTON9_TO		NUM_PAD_8
++#define HACK_REMAP_MOUSE_BUTTON8_TO		NUM_PAD_9
++#define HACK_REMAP_SPACEBAR_TO			NUM_PAD_0
++
++
++#endif /* XCB_HACK_H */
+--- libxcb-1.13.orig/src/xcb_conn.c	2018-03-05 10:21:04.000000000 +0100
++++ libxcb-1.13.patched/src/xcb_conn.c	2019-03-10 18:05:03.449338658 +0100
+@@ -348,6 +348,9 @@
+         return _xcb_conn_ret_error(XCB_CONN_CLOSED_MEM_INSUFFICIENT) ;
+     }
+ 
++    /*HACK*/
++    fprintf(stderr, "Regnum Patch V0.6-zas loaded (fd=%d)\n", fd);
++
+     c->fd = fd;
+ 
+     if(!(
+--- libxcb-1.13.orig/src/xcb_in.c	2018-03-05 10:21:04.000000000 +0100
++++ libxcb-1.13.patched/src/xcb_in.c	2019-03-10 18:05:03.449338658 +0100
+@@ -340,6 +340,183 @@
+     return 1; /* I have something for you... */
+ }
+ 
++#include "hack.h"
++
++
++
++/* HACK */
++static void info_hack(xcb_connection_t *c)
++{
++#if HACK_DEBUG
++    fprintf(stderr, "Keyboard hack - %s\n", c->hack.keyboard.disabled ? "OFF" : "ON");
++#endif
++}
++
++static void xcb_remap_keys_hack(uint8_t *detail)
++{
++    /*Remap Keys*/
++    switch(*detail) {
++
++#if HACK_REMAP_ARROW_KEYS
++    case 111: /*Arrow Up to W*/
++	*detail = 25;
++	break;
++    case 116: /*Arrow Down to S*/
++	*detail = 39;
++	break;
++    case 113: /*Arrow Left to A*/
++	*detail = 38;
++	break;
++    case 114: /*Arrow Right to D*/
++	*detail = 40;
++	break;
++#endif /* HACK_REMAP_ARROW_KEYS */
++
++#if HACK_REMAP_KX
++    case 53: /*X Key to K key*/
++	*detail = 45;
++	break;
++    case 45: /*K Key to X key*/
++	*detail = 53;
++	break;
++#endif /* HACK_REMAP_KX */
++
++#if HACK_REMAP_AZERTY_NUMBERS
++    case 10: *detail = NUM_PAD_1; break; /* 1 */
++    case 11: *detail = NUM_PAD_2; break; /* 2 */
++    case 12: *detail = NUM_PAD_3; break; /* 3 */
++    case 13: *detail = NUM_PAD_4; break; /* 4 */
++    case 14: *detail = NUM_PAD_5; break; /* 5 */
++    case 15: *detail = NUM_PAD_6; break; /* 6 */
++    case 16: *detail = NUM_PAD_7; break; /* 7 */
++    case 17: *detail = NUM_PAD_8; break; /* 8 */
++    case 18: *detail = NUM_PAD_9; break; /* 9 */
++    case 19: *detail = NUM_PAD_0; break; /* 0 */
++#endif /* HACK_REMAP_AZERTY_NUMBERS */
++
++#if HACK_REMAP_SPACEBAR
++    case 65: *detail = HACK_REMAP_SPACEBAR_TO; break;
++#endif /* HACK_REMAP_SPACEBAR */
++    }
++}
++
++#if HACK_REMAP_MOUSE_BUTTONS
++static int xcb_mouse_remap(uint8_t *detail) {
++	int found = 0;
++	switch (*detail) {
++		case 9: *detail = HACK_REMAP_MOUSE_BUTTON9_TO; found = 1; break; /* up */
++		case 8: *detail = HACK_REMAP_MOUSE_BUTTON8_TO; found = 1; break; /* down */
++	}
++	return found;
++}
++#endif
++
++#if HACK_CHAT_ZONE
++static int hack_in_chat_dialog(xcb_connection_t *c, xcb_window_t win, uint16_t x, uint16_t y) {
++	/* position of channels tabs and text entry */
++	const uint32_t y1 = HACK_RES_Y - 80;
++	const uint32_t y2 = HACK_RES_Y - 65;
++	const uint32_t x1 = 30;
++	const uint32_t x2 = x1 + HACK_CHAT_WIDTH;
++
++	return (y >= y1 && y <= y2 && x >= x1 && x <= x2);
++}
++#endif
++
++static void xcb_mouse_button_hack(xcb_connection_t *c, xcb_generic_event_t *ret)
++{
++	switch (ret->response_type & ~0x80) {
++		case XCB_BUTTON_PRESS: {
++			xcb_button_press_event_t *ev = (xcb_button_press_event_t *)ret;
++
++			switch(ev->detail) {
++			case 1:
++#if HACK_SELECT_WITH_MOUSE
++				c->hack.mouse.X = ev->event_x;
++				c->hack.mouse.Y = ev->event_y;
++				c->hack.mouse.lock = 1;
++#endif
++				break;
++			case 8:
++			case 9:
++#if HACK_REMAP_MOUSE_BUTTONS
++				if (xcb_mouse_remap(&ev->detail)){
++					ev->response_type = XCB_KEY_PRESS;
++				}
++#endif
++				break;
++			}
++
++#if HACK_DEBUG
++			fprintf(stderr, "press %d %08x %08x %08x %d %d\n", ev->detail, ev->root, ev->event, ev->child, ev->event_x, ev->event_y);
++#endif
++			break;
++		}
++		case XCB_BUTTON_RELEASE: {
++			xcb_button_release_event_t *ev = (xcb_button_release_event_t *)ret;
++
++			switch(ev->detail) {
++			case 1:
++#if HACK_CHAT_ZONE
++				if (hack_in_chat_dialog(c, ev->event, ev->event_x, ev->event_y)) {
++					if (!c->hack.keyboard.disabled) {
++						c->hack.keyboard.disabled = 1;
++						info_hack(c);
++					}
++				} else {
++					if (c->hack.keyboard.disabled) {
++						c->hack.keyboard.disabled = 0;
++						info_hack(c);
++					}
++				}
++#endif
++
++#if HACK_SELECT_WITH_MOUSE
++				if(c->hack.mouse.lock) {
++					ev->event_x = c->hack.mouse.X;
++					ev->event_y = c->hack.mouse.Y;
++					c->hack.mouse.lock = 0;
++				}
++#endif
++				break;
++			case 8:
++			case 9:
++#if HACK_REMAP_MOUSE_BUTTONS
++				if (xcb_mouse_remap(&ev->detail)){
++					ev->response_type = XCB_KEY_RELEASE;
++				}
++#endif
++				break;
++			}
++
++#if HACK_DEBUG
++			fprintf(stderr, "release %d %08x %08x %08x %d %d\n", ev->detail, ev->root, ev->event, ev->child, ev->event_x, ev->event_y);
++#endif
++
++			break;
++		}
++		case XCB_MOTION_NOTIFY: {
++			xcb_motion_notify_event_t *ev = (xcb_motion_notify_event_t *)ret;
++
++#if HACK_SELECT_WITH_MOUSE
++			if(c->hack.mouse.lock) {
++				if((ev->event_x < c->hack.mouse.X + 20 && ev->event_x > c->hack.mouse.X - 20) &&
++				   (ev->event_y < c->hack.mouse.Y + 20 && ev->event_y > c->hack.mouse.Y - 20) ) {
++
++					ev->event_x = c->hack.mouse.X;
++					ev->event_y = c->hack.mouse.Y;
++				} else {
++					c->hack.mouse.lock = 0;
++				}
++			}
++#endif
++			break;
++		}
++		default: break;
++	}
++}
++
++
+ static xcb_generic_event_t *get_event(xcb_connection_t *c)
+ {
+     struct event_list *cur = c->in.events;
+@@ -351,6 +528,47 @@
+     if(!cur->next)
+         c->in.events_tail = &c->in.events;
+     free(cur);
++
++    /*HACK*/
++    if(ret != 0) {
++        switch (ret->response_type & ~0x80) {
++            case XCB_BUTTON_PRESS:
++            case XCB_BUTTON_RELEASE:
++            case XCB_MOTION_NOTIFY:
++				xcb_mouse_button_hack(c, ret);
++				break;
++            case XCB_KEY_PRESS: {
++                xcb_key_press_event_t *ev = (xcb_key_press_event_t *)ret;
++                if(!c->hack.keyboard.disabled) {
++					xcb_remap_keys_hack(&ev->detail);
++                }
++                break;
++            }
++            case XCB_KEY_RELEASE: {
++                xcb_key_release_event_t *ev = (xcb_key_release_event_t *)ret;
++#if HACK_DEBUG
++				fprintf(stderr, "fd=%d key=%d\n", c->fd, ev->detail);
++#endif
++				switch(ev->detail) {
++				case 22:     /* Backspace to set chat mode to 1 */
++					if (!c->hack.keyboard.disabled) {
++						c->hack.keyboard.disabled = 1;
++						info_hack(c);
++					}
++					break;
++				case 36:    /* Enter Key toggles chat mode */
++					c->hack.keyboard.disabled = !c->hack.keyboard.disabled;
++					info_hack(c);
++					break;
++				}
++
++				if(!c->hack.keyboard.disabled) {
++					xcb_remap_keys_hack(&ev->detail);
++				}
++                break;
++            }
++        }
++    }
+     return ret;
+ }
+ 
+--- libxcb-1.13.orig/src/xcbint.h	2018-03-05 10:21:04.000000000 +0100
++++ libxcb-1.13.patched/src/xcbint.h	2019-03-10 18:05:03.449338658 +0100
+@@ -189,6 +189,18 @@
+ int _xcb_ext_init(xcb_connection_t *c);
+ void _xcb_ext_destroy(xcb_connection_t *c);
+ 
++/* regnum hack */
++typedef struct _hack {
++    struct {
++	int lock;
++	int16_t X;
++	int16_t Y;
++	int disabled;
++    } mouse;
++    struct {
++	int disabled;
++    } keyboard;
++} _hack;
+ 
+ /* xcb_conn.c */
+ 
+@@ -208,6 +220,9 @@
+     /* misc data */
+     _xcb_ext ext;
+     _xcb_xid xid;
++
++    /* regnum hack */
++    _hack hack;
+ };
+ 
+ void _xcb_conn_shutdown(xcb_connection_t *c, int err);

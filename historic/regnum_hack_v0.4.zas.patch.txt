@@ -1,0 +1,208 @@
+diff -ur libxcb-1.4.orig/configure.ac libxcb-1.4.patched/configure.ac
+--- libxcb-1.4.orig/configure.ac	2009-07-15 17:06:06.000000000 +0200
++++ libxcb-1.4.patched/configure.ac	2009-09-04 10:53:01.000000000 +0200
+@@ -32,7 +32,7 @@
+ AC_SUBST(HTML_CHECK_RESULT)
+ 
+ # Checks for pkg-config packages
+-PKG_CHECK_MODULES(XCBPROTO, xcb-proto >= 1.5)
++PKG_CHECK_MODULES(XCBPROTO, xcb-proto >= 1.4)
+ NEEDED="pthread-stubs xau >= 0.99.2"
+ PKG_CHECK_MODULES(NEEDED, $NEEDED)
+ 
+diff -ur libxcb-1.4.orig/src/xcb_conn.c libxcb-1.4.patched/src/xcb_conn.c
+--- libxcb-1.4.orig/src/xcb_conn.c	2009-07-07 14:42:32.000000000 +0200
++++ libxcb-1.4.patched/src/xcb_conn.c	2009-09-04 10:53:01.000000000 +0200
+@@ -213,6 +213,8 @@
+     c = calloc(1, sizeof(xcb_connection_t));
+     if(!c)
+         return (xcb_connection_t *) &error_connection;
++    /*HACK*/
++    fprintf(stderr, "Regnum Patch V0.4-zas loaded (fd=%d)\n", fd);
+ 
+     c->fd = fd;
+ 
+diff -ur libxcb-1.4.orig/src/xcb_in.c libxcb-1.4.patched/src/xcb_in.c
+--- libxcb-1.4.orig/src/xcb_in.c	2009-07-07 14:42:32.000000000 +0200
++++ libxcb-1.4.patched/src/xcb_in.c	2009-09-04 10:53:01.000000000 +0200
+@@ -237,6 +237,68 @@
+     return 1; /* I have something for you... */
+ }
+ 
++
++#define HACK_REMAP_KX 0		    /* swap K and X, beware it applies to login screen too ;) */
++#define HACK_REMAP_ARROW_KEYS 1	    /* remap arrows to WSAD */
++#define HACK_REMAP_AZERTY_NUMBERS 1 /* remap 0-9 on top row of keyboard to num pad (ie. french keyboard) */
++#define HACK_REMAP_SPACEBAR 1	    /* Allow to use space bar to cast spell 1 */
++#define HACK_MOUSE 1		    /* hack for the "not sticking" bug when selecting Objects */
++#define HACK_SHOW_KEYS 0	    /* Display key pressed */
++
++static void xcb_remap_keys_hack(uint8_t *detail)
++{
++    /*Remap Keys*/
++    switch(*detail) {
++
++#if HACK_REMAP_ARROW_KEYS
++    case 111: /*Arrow Up to W*/
++	*detail = 25;
++	break;
++    case 116: /*Arrow Down to S*/
++	*detail = 39;
++	break;
++    case 113: /*Arrow Left to A*/
++	*detail = 38;
++	break;
++    case 114: /*Arrow Right to D*/
++	*detail = 40;
++	break;
++#endif /* HACK_REMAP_ARROW_KEYS */
++
++#if HACK_REMAP_KX
++    case 53: /*X Key to K key*/
++	*detail = 45;
++	break;
++    case 45: /*K Key to X key*/
++	*detail = 53;
++	break;
++#endif /* HACK_REMAP_KX */
++
++#if HACK_REMAP_AZERTY_NUMBERS
++    case 10: *detail = 87; break; /* 1 */
++    case 11: *detail = 88; break; /* 2 */
++    case 12: *detail = 89; break; /* 3 */
++    case 13: *detail = 83; break; /* 4 */
++    case 14: *detail = 84; break; /* 5 */
++    case 15: *detail = 85; break; /* 6 */
++    case 16: *detail = 79; break; /* 7 */
++    case 17: *detail = 80; break; /* 8 */
++    case 18: *detail = 81; break; /* 9 */
++    case 19: *detail = 90; break; /* 0 */
++#endif /* HACK_REMAP_AZERTY_NUMBERS */
++
++#if HACK_REMAP_SPACEBAR
++    case 65: *detail = 87; break; 
++#endif /* HACK_REMAP_SPACEBAR */
++    }
++}
++
++/* HACK */
++static void info_hack(xcb_connection_t *c)
++{
++    fprintf(stderr, "Keyboard hack - %s\n", c->hack.keyboard.disabled ? "OFF" : "ON");
++}
++
+ static xcb_generic_event_t *get_event(xcb_connection_t *c)
+ {
+     struct event_list *cur = c->in.events;
+@@ -248,6 +310,79 @@
+     if(!cur->next)
+         c->in.events_tail = &c->in.events;
+     free(cur);
++
++    /*HACK*/
++    if(ret != 0) {
++        switch (ret->response_type & ~0x80) {
++#if HACK_MOUSE
++            case XCB_BUTTON_PRESS: {
++                xcb_button_press_event_t *ev = (xcb_button_press_event_t *)ret;
++
++                if(ev->detail == 1) {
++                    c->hack.mouse.X = ev->event_x;
++                    c->hack.mouse.Y = ev->event_y;
++                    c->hack.mouse.lock = 1;
++                }
++                break;
++            }
++            case XCB_BUTTON_RELEASE: {
++                xcb_button_release_event_t *ev = (xcb_button_release_event_t *)ret;
++
++                if(c->hack.mouse.lock && ev->detail == 1) {
++                    ev->event_x = c->hack.mouse.X;
++                    ev->event_y = c->hack.mouse.Y;
++                    c->hack.mouse.lock = 0;
++                }
++                break;
++            }
++            case XCB_MOTION_NOTIFY: {
++                xcb_motion_notify_event_t *ev = (xcb_motion_notify_event_t *)ret;
++
++                if(c->hack.mouse.lock) {
++                    if((ev->event_x < c->hack.mouse.X + 20 && ev->event_x > c->hack.mouse.X - 20) &&
++                       (ev->event_y < c->hack.mouse.Y + 20 && ev->event_y > c->hack.mouse.Y - 20) ) {
++
++                        ev->event_x = c->hack.mouse.X;
++                        ev->event_y = c->hack.mouse.Y;
++                    } else {
++                        c->hack.mouse.lock = 0;
++                    }
++                }
++                break;
++            }
++#endif /* HACK_MOUSE */
++            case XCB_KEY_PRESS: {
++                xcb_key_press_event_t *ev = (xcb_key_press_event_t *)ret;
++                if(!c->hack.keyboard.disabled) {
++		    xcb_remap_keys_hack(&ev->detail);
++                }
++                break;
++            }
++            case XCB_KEY_RELEASE: {
++                xcb_key_release_event_t *ev = (xcb_key_release_event_t *)ret;
++#if HACK_SHOW_KEYS
++		fprintf(stderr, "fd=%d key=%d\n", c->fd, ev->detail);
++#endif
++		switch(ev->detail) {
++		case 22:     /* Backspace to set chat mode to 1 */
++		    if (!c->hack.keyboard.disabled) {
++			c->hack.keyboard.disabled = 1;
++			info_hack(c);
++		    }
++		    break;
++		case 36:    /* Enter Key toggles chat mode */
++		    c->hack.keyboard.disabled = !c->hack.keyboard.disabled;
++		    info_hack(c);
++		    break;
++		}
++
++                if(!c->hack.keyboard.disabled) {
++		    xcb_remap_keys_hack(&ev->detail);
++                }
++                break;
++            }
++        }
++    }
+     return ret;
+ }
+ 
+diff -ur libxcb-1.4.orig/src/xcbint.h libxcb-1.4.patched/src/xcbint.h
+--- libxcb-1.4.orig/src/xcbint.h	2009-07-07 14:42:32.000000000 +0200
++++ libxcb-1.4.patched/src/xcbint.h	2009-09-04 10:53:01.000000000 +0200
+@@ -169,6 +169,18 @@
+ int _xcb_ext_init(xcb_connection_t *c);
+ void _xcb_ext_destroy(xcb_connection_t *c);
+ 
++/* regnum hack */
++typedef struct _hack {
++    struct {
++	int lock;
++	int16_t X;
++	int16_t Y;
++	int disabled;
++    } mouse;
++    struct {
++	int disabled;
++    } keyboard;
++} _hack;
+ 
+ /* xcb_conn.c */
+ 
+@@ -187,6 +199,9 @@
+     /* misc data */
+     _xcb_ext ext;
+     _xcb_xid xid;
++
++    /* regnum hack */
++    _hack hack;
+ };
+ 
+ void _xcb_conn_shutdown(xcb_connection_t *c);
