@@ -5,7 +5,11 @@ This game has very bad support for key binding and especially with french keyboa
 - Clone this repo in `~/src`
 
 ```bash
-    mkdir ~/src && cd ~/src && git clone https://github.com/zas/rokeyshack.git
+sudo apt-get install git
+```
+
+```bash
+    mkdir -p ~/src && cd ~/src && git clone https://github.com/zas/rokeyshack.git
 ```
 
 - To build modified version of libxcb, you need (ubuntu):
