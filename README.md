@@ -5,7 +5,7 @@ This game has very bad support for key binding and especially with french keyboa
 - Clone this repo in `~/src`
 
 ```bash
-sudo apt-get install git
+    sudo apt-get install git
 ```
 
 ```bash
@@ -15,13 +15,13 @@ sudo apt-get install git
 - To build modified version of libxcb, you need (ubuntu):
 
 ```bash
-    sudo apt-get install build-essential xsltproc xcb-proto libpthread-stubs0-dev libxau-dev python-xcbgen
+    sudo apt-get install build-essential xsltproc xcb-proto libpthread-stubs0-dev libxau-dev python3-xcbgen
 ```
 
 - Create a target directory and cd to it:
 
 ```bash
-    mkdir ~/rokeyshack.built && cd  ~/rokeyshack.built
+    mkdir -p ~/rokeyshack.built && cd  ~/rokeyshack.built
 ```
 
 - Download original version:
